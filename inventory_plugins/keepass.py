@@ -65,10 +65,10 @@ class InventoryModule(BaseInventoryPlugin):
             d = kp_db.tree.find('Meta/DatabaseDescription')
             if d is not None and d.text:
                 options = self.read_notes(d.text)
-                for k in options: self.opts[k] = options[k]
-                # Not sure what options the base class is interested in, but just in case
-                self._consume_options(options)
-                
+                for k in options: 
+                    self.opts[k] = options[k]
+                    # Two options "systems" is redundant, need to switch
+                    self.set_option(k, options[k])
                 
             self._parse_kp_db(kp_db)
         else:
@@ -131,7 +131,7 @@ class InventoryModule(BaseInventoryPlugin):
             notes = self.read_notes(notes.text)
         if notes is not None: 
             for k in notes: inv.set_variable(name.text, k , notes[k])
-                
+        
         return True
 
     def got_entry(self, el):
@@ -146,6 +146,7 @@ class InventoryModule(BaseInventoryPlugin):
         
         self.display.vvvv("Entry: " + data['title'] +" in Group: "+ pgn +"\n")
         
+        # --- Process host entry ---
         if data['title'].startswith('@'):
             h = data['title'].split('@', 1)[-1]
             inv.add_host(h, group=pgn)
@@ -156,7 +157,8 @@ class InventoryModule(BaseInventoryPlugin):
             
             if self.opts['host_fields_in']:
                 inv.set_variable(h, self.opts['host_fields_in'], data)
-            
+        
+        # --- Process variables entry ---
         if data['title'].startswith(':'):
             e = data['title'].split(':', 1)[-1]
             if e and len(e) > 2:
