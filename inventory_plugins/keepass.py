@@ -118,10 +118,11 @@ class InventoryModule(BaseInventoryPlugin):
         
         if name.text not in inv.groups:
             inv.add_group(name.text)
-            pgn = self.get_pgroup_name(el)
-            # Is should not be possible to have a child added before the parent, but just in case..
-            if pgn is not None and pgn in inv.groups:
-                inv.add_child(pgn, name.text)
+            
+        pgn = self.get_pgroup_name(el)
+        # Is should not be possible to have a child added before the parent, but just in case..
+        if pgn is not None and pgn in inv.groups:
+            inv.add_child(pgn, name.text)
         
         notes = el.find('Notes')    
         if notes is not None: 
