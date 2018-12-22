@@ -1,11 +1,9 @@
 
 from __future__ import absolute_import
 
-import pprint
-import inspect
 import os
-from pykeepass import PyKeePass
 import yaml
+from pykeepass import PyKeePass
 
 from ansible.plugins.inventory import BaseInventoryPlugin
 from ansible.errors import AnsibleError, AnsibleParserError
@@ -16,10 +14,11 @@ class InventoryModule(BaseInventoryPlugin):
 
     _PW_ENV_LIST = ["RD_OPTION_KEEPASS_PW", "KEEPASS_PW"]
     _SKIP_TAGS = ['Meta', 'Times', 'DeletedObjects', 'History']
-    _IGNORE_GROUPS = ["Recycle Bin"]
+
     opts = {
         'host_fields_in': "keepass_data",
-        'entry_fields_in': "keepass_data"
+        'entry_fields_in': "keepass_data",
+        'ignore_groups': ["Recycle Bin"]
     }
     
     def verify_file(self, path):
@@ -78,8 +77,6 @@ class InventoryModule(BaseInventoryPlugin):
         
 
     def _parse_kp_db(self, kp_db):
-        #print(kp_db.pretty_print())
-        #pprint.pprint(dir(kp_db.tree.getroot()))
 
         # This was originally written for libkeepass, so uses lxml directly
         # Would that complete features than rewrite for the new API
@@ -114,7 +111,7 @@ class InventoryModule(BaseInventoryPlugin):
         
         if name is None:
             raise AnsibleParserError("Impossible group without a name")
-        if name.text in self._IGNORE_GROUPS:
+        if name.text in self.opts['ignore_groups']:
             return False
         
         self.display.vvvv("Group: " + name.text)
@@ -189,7 +186,7 @@ class InventoryModule(BaseInventoryPlugin):
             v = s.find('Value')
             if k is not None and v is not None:
                 elmap[k.text.lower()] = v.text
-        #pprint.pprint(elmap)
+
         return elmap
 
     def is_ancestor(self, el, an):
