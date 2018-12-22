@@ -17,27 +17,27 @@ class InventoryModule(BaseInventoryPlugin):
     _PW_ENV_LIST = ["RD_OPTION_KEEPASS_PW", "KEEPASS_PW"]
     _SKIP_TAGS = ['Meta', 'Times', 'DeletedObjects', 'History']
     _IGNORE_GROUPS = ["Recycle Bin"]
+    opts = {
+        'host_fields_in': "keepass_data",
+        'entry_fields_in': "keepass_data"
+    }
     
     def verify_file(self, path):
         ''' return true/false if this is possibly a valid file for this plugin to consume '''
-        valid = False
-        print("keepass verify_file\n")
-        
+     
         if super(InventoryModule, self).verify_file(path):
             # base class verifies that file exists and is readable by current user
             if path.endswith(('.kdb', '.kdbx')):
-                valid = True
-        return valid
+                self.display.vvvv("Valid keepass filename: "+path)
+                return True
+        self.display.vvvv("Invalid keepass filename: "+path)
+        return False
 
     def parse(self, inventory, loader, path, cache=False):
     
         # call base method to ensure properties are available for use with other helper methods
         super(InventoryModule, self).parse(inventory, loader, path, cache)
     
-        #for s in loader._vault.secrets:
-            #print("----> "+ s[1].bytes)
-            #pprint.pprint(inspect.getmembers(s[1]))
-        
         #self.display.warning(loader._vault.secrets.1.bytes())
         
         # this method will parse 'common format' inventory sources and
@@ -53,12 +53,23 @@ class InventoryModule(BaseInventoryPlugin):
         for pw in self.get_kp_passwords():
             try:
                 kp_db = PyKeePass(path, password=pw)
-                
-                break
-            except:
+                if kp_db: 
+                    self.display.vvv("Attempt to decrypt the keepass file succeeded")
+                    break
+            except Exception as ex:
+                # Assuming we've not reached the correct pw
+                self.display.vvv("An attempt to decrypt the keepass file failed: "+str(ex))
                 continue
 
         if kp_db:
+            d = kp_db.tree.find('Meta/DatabaseDescription')
+            if d is not None and d.text:
+                options = self.read_notes(d.text)
+                for k in options: self.opts[k] = options[k]
+                # Not sure what options the base class is interested in, but just in case
+                self._consume_options(options)
+                
+                
             self._parse_kp_db(kp_db)
         else:
             raise AnsibleParserError("Unable to decrypt keepass file")
@@ -68,9 +79,10 @@ class InventoryModule(BaseInventoryPlugin):
 
     def _parse_kp_db(self, kp_db):
         #print(kp_db.pretty_print())
-        pprint.pprint(dir(kp_db.tree.getroot()))
+        #pprint.pprint(dir(kp_db.tree.getroot()))
 
         # This was originally written for libkeepass, so uses lxml directly
+        # Would that complete features than rewrite for the new API
         skipping = None
         for el in kp_db.tree.getiterator():
 
@@ -105,7 +117,7 @@ class InventoryModule(BaseInventoryPlugin):
         if name.text in self._IGNORE_GROUPS:
             return False
         
-        print("Group: " + name.text)
+        self.display.vvvv("Group: " + name.text)
         
         if name.text not in inv.groups:
             inv.add_group(name.text)
@@ -115,12 +127,13 @@ class InventoryModule(BaseInventoryPlugin):
                 inv.add_child(pgn, name.text)
         
         notes = el.find('Notes')    
-        if notes is not None:
-            self.load_notes(notes.text, name.text)
-        
+        if notes is not None: 
+            notes = self.read_notes(notes.text)
+        if notes is not None: 
+            for k in notes: inv.set_variable(name.text, k , notes[k])
+                
         return True
 
-        
     def got_entry(self, el):
         inv = self.inventory
         data = self.map_entry_strings(el)
@@ -130,36 +143,37 @@ class InventoryModule(BaseInventoryPlugin):
             return
         
         pgn = self.get_pgroup_name(el) or "ungrouped"
-        print "GOT entry: " + data['title'] +" in Group: "+ pgn +"\n"
+        
+        self.display.vvvv("Entry: " + data['title'] +" in Group: "+ pgn +"\n")
         
         if data['title'].startswith('@'):
             h = data['title'].split('@', 1)[-1]
             inv.add_host(h, group=pgn)
-            if self.load_notes(data['notes'], h):
-                del data['notes']
-            inv.set_variable(h, "keepass_data", data)
+            
+            notes = data.pop('notes')
+            if notes is not None: notes = self.read_notes(notes)
+            for k in notes: inv.set_variable(h, k , notes[k])
+            
+            if self.opts['host_fields_in']:
+                inv.set_variable(h, self.opts['host_fields_in'], data)
             
         if data['title'].startswith(':'):
             e = data['title'].split(':', 1)[-1]
-            if self.load_notes(data['notes'], pgn, e):
-                del data['notes']
-            
+            if e and len(e) > 2:
+                notes = data.pop('notes')
+                if notes is not None: notes = self.read_notes(notes)
+                
+                # Add feature fold in, instead of sub field
+                if self.opts['entry_fields_in']:
+                    notes[self.opts['entry_fields_in']] = data
+                
+                inv.set_variable(pgn, e , notes)
+
     def get_pgroup_name(self, el):
         p = el.getparent()
         if p is not None and p.tag != "Root":
             return p.find('Name').text
         return None
-
-    def load_notes(self, notes, entry, prefix=None):
-        if notes is not None and notes.startswith('---'):
-            y = yaml.safe_load(notes) or {}
-            if prefix is not None:
-                self.inventory.set_variable(entry, prefix, y)
-            else:
-                for k in y:
-                    self.inventory.set_variable(entry, k, y[k])
-            return True
-        return False
 
     def read_notes(self, notes):
         if notes is not None and notes.startswith('---'):
