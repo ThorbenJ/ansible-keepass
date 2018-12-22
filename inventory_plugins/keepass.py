@@ -2,8 +2,9 @@
 from __future__ import absolute_import
 
 import pprint
+import inspect
 import os
-import libkeepass
+from pykeepass import PyKeePass
 import yaml
 
 from ansible.plugins.inventory import BaseInventoryPlugin
@@ -33,7 +34,11 @@ class InventoryModule(BaseInventoryPlugin):
         # call base method to ensure properties are available for use with other helper methods
         super(InventoryModule, self).parse(inventory, loader, path, cache)
     
-        pprint.pprint(dir(inventory))
+        #for s in loader._vault.secrets:
+            #print("----> "+ s[1].bytes)
+            #pprint.pprint(inspect.getmembers(s[1]))
+        
+        #self.display.warning(loader._vault.secrets.1.bytes())
         
         # this method will parse 'common format' inventory sources and
         # update any options declared in DOCUMENTATION as needed
@@ -44,43 +49,58 @@ class InventoryModule(BaseInventoryPlugin):
         # if you dont define any options you can skip
         #self.set_options()
     
+        kp_db = None
+        for pw in self.get_kp_passwords():
+            try:
+                kp_db = PyKeePass(path, password=pw)
+                
+                break
+            except:
+                continue
+
+        if kp_db:
+            self._parse_kp_db(kp_db)
+        else:
+            raise AnsibleParserError("Unable to decrypt keepass file")
+
+        
+        
+
+    def _parse_kp_db(self, kp_db):
+        #print(kp_db.pretty_print())
+        pprint.pprint(dir(kp_db.tree.getroot()))
+
+        # This was originally written for libkeepass, so uses lxml directly
         skipping = None
-        with libkeepass.open(path, password=self.get_kp_pw()) as kp_db:
-            print(kp_db.pretty_print())
-            #pprint.pprint(dir(kp_db.obj_root))
-            for el in kp_db.obj_root.getiterator():
-                if skipping != None:
-                    if skipping == el.getparent():
-                        # We've skipped the subtree
-                        skipping = None;
-                    else:
-                        continue
-                    
-                if el.tag == "Group":
-                    if not self.got_group(el):
-                        skipping = el.getparent()
+        for el in kp_db.tree.getiterator():
+
+            if skipping != None:
+                if self.is_ancestor(el, skipping):
                     continue
-                
-                if el.tag == "Entry":
-                    self.got_entry(el)
-                    skipping = el.getparent()
-                    continue
-                
-                if el.tag in self._SKIP_TAGS:
-                    skipping = el.getparent()
-                    continue
-                
-                if el.getparent() is not None:
-                    print(str(el.getparent().tag) + " / " + str(el.tag))
                 else:
-                    print("ROOT / "+ str(el.tag))
+                    skipping = None
+                
+            if el.tag == "Group":
+                if not self.got_group(el):
+                    skipping = el
+                continue
+            
+            if el.tag == "Entry":
+                self.got_entry(el)
+                skipping = el
+                continue
+            
+            if el.tag in self._SKIP_TAGS:
+                skipping = el
+                continue
                 
             
 
     def got_group(self, el):
         inv = self.inventory
         name = el.find('Name')
-        if not name:
+        
+        if name is None:
             raise AnsibleParserError("Impossible group without a name")
         if name.text in self._IGNORE_GROUPS:
             return False
@@ -90,12 +110,14 @@ class InventoryModule(BaseInventoryPlugin):
         if name.text not in inv.groups:
             inv.add_group(name.text)
             pgn = self.get_pgroup_name(el)
+            # Is should not be possible to have a child added before the parent, but just in case..
             if pgn is not None and pgn in inv.groups:
                 inv.add_child(pgn, name.text)
         
         notes = el.find('Notes')    
         if notes is not None:
-                self.load_notes(notes.text, name.text)
+            self.load_notes(notes.text, name.text)
+        
         return True
 
         
@@ -103,7 +125,8 @@ class InventoryModule(BaseInventoryPlugin):
         inv = self.inventory
         data = self.map_entry_strings(el)
         if not 'title' in data:
-            print "NO TITLE in Entry"
+            # Maybe add some way to find this..
+            self.display.warning("Entry has no Title set!")
             return
         
         pgn = self.get_pgroup_name(el) or "ungrouped"
@@ -112,8 +135,14 @@ class InventoryModule(BaseInventoryPlugin):
         if data['title'].startswith('@'):
             h = data['title'].split('@', 1)[-1]
             inv.add_host(h, group=pgn)
-            self.load_notes(data['notes'], h)
+            if self.load_notes(data['notes'], h):
+                del data['notes']
+            inv.set_variable(h, "keepass_data", data)
             
+        if data['title'].startswith(':'):
+            e = data['title'].split(':', 1)[-1]
+            if self.load_notes(data['notes'], pgn, e):
+                del data['notes']
             
     def get_pgroup_name(self, el):
         p = el.getparent()
@@ -121,38 +150,58 @@ class InventoryModule(BaseInventoryPlugin):
             return p.find('Name').text
         return None
 
-    def load_notes(self, notes, entry):
+    def load_notes(self, notes, entry, prefix=None):
         if notes is not None and notes.startswith('---'):
             y = yaml.safe_load(notes) or {}
-            for k in y:
-                self.inventory.set_variable(entry, k, y[k])
+            if prefix is not None:
+                self.inventory.set_variable(entry, prefix, y)
+            else:
+                for k in y:
+                    self.inventory.set_variable(entry, k, y[k])
+            return True
+        return False
 
+    def read_notes(self, notes):
+        if notes is not None and notes.startswith('---'):
+            return yaml.safe_load(notes) or {}
+        return None
+        
     def map_entry_strings(self, el):
         elmap = {}
         for s in el.findall('String'):
             k = s.find('Key')
             v = s.find('Value')
-            if k and v:
+            if k is not None and v is not None:
                 elmap[k.text.lower()] = v.text
         #pprint.pprint(elmap)
         return elmap
 
-    # Would love to grab the vault password and use that or at least extra vars..
-    # (or even re-use its password prompt function)
+    def is_ancestor(self, el, an):
+        if el is None or an is None:
+            return False
+        # Should never get more then one level deep, but just in case..
+        for p in el.iterancestors():
+            if an == p:
+                return True
+        return False
+
     # Current solution is to support a list of enviroment variables, 
     # to allow easier integration into various enviroments (e.g. Rundeck)
-    def get_kp_pw(self):
-        kp_pw = None
+    # We also grab the default vault password
+    def get_kp_passwords(self):
+        kp_pw = []
         
         for k in self._PW_ENV_LIST:
-            if not k in os.environ:
-                continue
+            if k in os.environ and os.environ[k]:
+                kp_pw.append(os.environ[k])
 
-            if os.environ[k]:
-                kp_pw = os.environ[k]
-                break
-    
-        if not kp_pw :
-            raise AnsibleParserError("Could not get a keepass password")
+        for s in self.loader._vault.secrets:
+            # Currently we only grab the default key
+            if s[0] != u'default':
+                continue
+            kp_pw.append(s[1].bytes)
+
+        if not kp_pw:
+            raise AnsibleParserError("Could not get any keepass password")
         
         return kp_pw
