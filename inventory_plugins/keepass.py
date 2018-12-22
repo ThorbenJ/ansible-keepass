@@ -10,7 +10,7 @@ from ansible.errors import AnsibleError, AnsibleParserError
 
 class InventoryModule(BaseInventoryPlugin):
 
-    NAME = 'keepass'  # used internally by Ansible, it should match the file name but not required
+    NAME = 'keepass'  # used internally by Ansible
 
     _PW_ENV_LIST = ["RD_OPTION_KEEPASS_PW", "KEEPASS_PW"]
     _SKIP_TAGS = ['Meta', 'Times', 'DeletedObjects', 'History']
@@ -36,18 +36,7 @@ class InventoryModule(BaseInventoryPlugin):
     
         # call base method to ensure properties are available for use with other helper methods
         super(InventoryModule, self).parse(inventory, loader, path, cache)
-    
-        #self.display.warning(loader._vault.secrets.1.bytes())
-        
-        # this method will parse 'common format' inventory sources and
-        # update any options declared in DOCUMENTATION as needed
-        # config = self._read_config_data(self, path)
-    
-        # if NOT using _read_config_data you should call set_options directly,
-        # to process any defined configuration for this plugin,
-        # if you dont define any options you can skip
-        #self.set_options()
-    
+
         kp_db = None
         for pw in self.get_kp_passwords():
             try:
@@ -120,7 +109,7 @@ class InventoryModule(BaseInventoryPlugin):
             inv.add_group(name.text)
             
         pgn = self.get_pgroup_name(el)
-        # Is should not be possible to have a child added before the parent, but just in case..
+        # It should not be possible to have a child added before the parent, but just in case..
         if pgn is not None and pgn in inv.groups:
             inv.add_child(pgn, name.text)
         
