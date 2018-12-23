@@ -10,15 +10,19 @@ or
 
     ansible-inventory -i kp_file.kdbx --list
 
+If no password is found, via env-vars or the ansible vault password, then this will fail. See next:
+    
 Keepass file password
 ---------------------
 
-The keepass plugin will try to use the "default" (vault id) password, if given; failing that it will look for the following environment variables:
+The keepass plugin will try to use the "default" (vault id) password, if given; alternatively it will look for the following environment variables:
 
  * KEEPASS_PW
  * RD_OPTION_KEEPASS_PW (simplify Rundeck usage)
 
-If you're not scared of Python you will find the list of env-vars to try near the top of the source file.
+It will try all available passwords in turn, starting with env-vars, until one succeeds; otherwise the plugin will fail.
+
+If you're not scared of Python you will find the list of env-vars to try near the top of the source file, you could add some more if needed.
 
 examples with vault password
 
@@ -46,28 +50,33 @@ Host / Group variables
 
 If the "Notes" field in both Groups and Entries starts with --- (YAML's three dashes), it will be read and the variables added to that Group or Host in the inventory.
 
-Entry fields
-------------
+Entry string fields
+-------------------
 
-You will find these set in a subkey, I am still working the best way to do this.
+Found under the advanced tab.
+
+You will find these set in the subkey "keepass_data" (by default), I am still working on how best to handle these.
 
 Group inheritance
 -----------------
 
-The Keepass db only has a single inheritance hierarchy, but ansible supports hosts and groups to be a child of more than one group.
+The Keepass db only has a single inheritance hierarchy, but ansible supports hosts and groups as children of more than one group.
 
 To support this, this plugin treat all groups in the keepass db with identical names as being the same group in the inventory, so:
 
-  - Aa
-    - Bb
-      - Cc
+ - Aa
+  - Bb
+   - Cc
   - Dd
-    - Bb
-      - Ee
+ -Ee
+  - Bb
+   - Ff
 
-In the ansible inventory there will be a single "Bb" group with both "Aa" and "Dd" as a parent and both "Cc" and "Ee" as a children.
+In the ansible inventory there will be a single "Bb" group with both "Aa" and "Ee" as a parent and both "Cc" and "Ff" as a children.
 
-This is all fine for Groups, but not so straight forward for hosts and variable: If two identically named groups have identically named hosts or variables in them, it is undefined which group will "win". Please avoid having identically named hosts or variables in multiple same named groups.
+This is all fine for Groups, but not so straight forward for hosts and variable: If two identically named groups have identically named hosts or variables in them, it is undefined which group will "win". 
+
+Please avoid having identically named hosts or variables in multiple same named groups. It is recommended to only populate one such group with hosts and variables, and leave the rest empty and just for relationship mapping.
 
 Host entries
 ------------
