@@ -16,8 +16,6 @@ class InventoryModule(BaseInventoryPlugin):
     _SKIP_TAGS = ['Meta', 'Times', 'DeletedObjects', 'History']
 
     opts = {
-#        'host_fields_in': "keepass_data",
-#        'entry_fields_in': "keepass_data",
         'ignore_groups': ["Recycle Bin"],
         'host_field_map': {
             'password': 'login.password',
@@ -155,21 +153,18 @@ class InventoryModule(BaseInventoryPlugin):
         inv.add_host(h, group=self.get_pgroup_name(el))
             
         notes = fields.pop('notes')
-        if notes is not None: notes = self.read_notes(notes)
-        for k in notes: inv.set_variable(h, k , notes[k])
         
         varz = self.map_fields(fields, self.opts['host_field_map'])
-        for k in varz:
-            inv.set_variable(h, k, varz[k])
+        for k in varz: inv.set_variable(h, k, varz[k])
+        
+        if notes is not None: notes = self.read_notes(notes)
+        for k in notes: inv.set_variable(h, k , notes[k])
 
-                
-        #if self.opts['host_fields_in']:
-            #inv.set_variable(h, self.opts['host_fields_in'], fields)
 
     def got_vars(self, el, fields):
         e = fields['title'].split(':', 1)[-1]
         
-        if e and len(e) > 2:
+        if e and len(e) > 1:
             notes = fields.pop('notes')
             if notes is not None: notes = self.read_notes(notes)
              
@@ -184,14 +179,13 @@ class InventoryModule(BaseInventoryPlugin):
         else:
             self.display.warning("Vars entry has no name")
     
+
     def map_fields(self, fields, mapping):
         varz = {}
         for k in fields:
             dest = k
-            if k in mapping:
-                dest = mapping[k]
-            if dest is None:
-                continue
+            if k in mapping: dest = mapping[k]
+            if dest is None: continue
             
             path = dest.split('.')
  
@@ -210,17 +204,20 @@ class InventoryModule(BaseInventoryPlugin):
         
         return varz
     
+
     def get_pgroup_name(self, el):
         p = el.getparent()
         if p is not None and p.tag != "Root":
             return p.find('Name').text
         return None
 
+
     def read_notes(self, notes):
         if notes is not None and notes.startswith('---'):
             return yaml.safe_load(notes) or {}
         return None
         
+
     def get_entry_fields(self, el):
         fields = {}
         for s in el.findall('String'):
@@ -231,14 +228,15 @@ class InventoryModule(BaseInventoryPlugin):
 
         return fields
 
+
     def is_ancestor(self, el, an):
         if el is None or an is None:
             return False
         # Should never get more then one level deep, but just in case..
         for p in el.iterancestors():
-            if an == p:
-                return True
+            if an == p: return True
         return False
+
 
     # Current solution is to support a list of enviroment variables, 
     # to allow easier integration into various enviroments (e.g. Rundeck)
@@ -252,8 +250,8 @@ class InventoryModule(BaseInventoryPlugin):
 
         for s in self.loader._vault.secrets:
             # Currently we only grab the default key
-            if s[0] != u'default':
-                continue
+            if s[0] != u'default': continue
+        
             kp_pw.append(s[1].bytes)
 
         if not kp_pw:
