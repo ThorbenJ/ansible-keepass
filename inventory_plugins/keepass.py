@@ -16,9 +16,18 @@ class InventoryModule(BaseInventoryPlugin):
     _SKIP_TAGS = ['Meta', 'Times', 'DeletedObjects', 'History']
 
     opts = {
-        'host_fields_in': "keepass_data",
-        'entry_fields_in': "keepass_data",
-        'ignore_groups': ["Recycle Bin"]
+#        'host_fields_in': "keepass_data",
+#        'entry_fields_in': "keepass_data",
+        'ignore_groups': ["Recycle Bin"],
+        'host_field_map': {
+            'password': 'login.password',
+            'username': 'login.username',
+            'url':      'login.url',
+            'title': None
+        },
+        'vars_field_map': {
+            'title': None
+        }
     }
     
     def verify_file(self, path):
@@ -122,42 +131,85 @@ class InventoryModule(BaseInventoryPlugin):
         return True
 
     def got_entry(self, el):
-        inv = self.inventory
-        data = self.map_entry_strings(el)
-        if not 'title' in data:
+        fields = self.get_entry_fields(el)
+        if not 'title' in fields:
             # Maybe add some way to find this..
             self.display.warning("Entry has no Title set!")
             return
         
-        pgn = self.get_pgroup_name(el) or "ungrouped"
-        
-        self.display.vvvv("Entry: " + data['title'] +" in Group: "+ pgn +"\n")
+        self.display.vvvv("Entry: " + fields['title'] +"\n")
         
         # --- Process host entry ---
-        if data['title'].startswith('@'):
-            h = data['title'].split('@', 1)[-1]
-            inv.add_host(h, group=pgn)
-            
-            notes = data.pop('notes')
-            if notes is not None: notes = self.read_notes(notes)
-            for k in notes: inv.set_variable(h, k , notes[k])
-            
-            if self.opts['host_fields_in']:
-                inv.set_variable(h, self.opts['host_fields_in'], data)
+        if fields['title'].startswith('@'):
+            self.got_host(el, fields)
         
         # --- Process variables entry ---
-        if data['title'].startswith(':'):
-            e = data['title'].split(':', 1)[-1]
-            if e and len(e) > 2:
-                notes = data.pop('notes')
-                if notes is not None: notes = self.read_notes(notes)
+        if fields['title'].startswith(':'):
+            self.got_vars(el, fields)
+            
                 
-                # Add feature fold in, instead of sub field
-                if self.opts['entry_fields_in']:
-                    notes[self.opts['entry_fields_in']] = data
-                
-                inv.set_variable(pgn, e , notes)
+    def got_host(self, el, fields):
+        inv = self.inventory
+        h = fields['title'].split('@', 1)[-1]
+        
+        inv.add_host(h, group=self.get_pgroup_name(el))
+            
+        notes = fields.pop('notes')
+        if notes is not None: notes = self.read_notes(notes)
+        for k in notes: inv.set_variable(h, k , notes[k])
+        
+        varz = self.map_fields(fields, self.opts['host_field_map'])
+        for k in varz:
+            inv.set_variable(h, k, varz[k])
 
+                
+        #if self.opts['host_fields_in']:
+            #inv.set_variable(h, self.opts['host_fields_in'], fields)
+
+    def got_vars(self, el, fields):
+        e = fields['title'].split(':', 1)[-1]
+        
+        if e and len(e) > 2:
+            notes = fields.pop('notes')
+            if notes is not None: notes = self.read_notes(notes)
+             
+            varz = self.map_fields(fields, self.opts['vars_field_map'])
+            for k in varz:
+                if k in notes:
+                    self.display.warning("dropping field with same key as notes")
+                    continue
+                notes[k] = varz[k]
+                
+            self.inventory.set_variable(self.get_pgroup_name(el), e , notes)
+        else:
+            self.display.warning("Vars entry has no name")
+    
+    def map_fields(self, fields, mapping):
+        varz = {}
+        for k in fields:
+            dest = k
+            if k in mapping:
+                dest = mapping[k]
+            if dest is None:
+                continue
+            
+            path = dest.split('.')
+ 
+            it = varz
+            while path:
+                p = path.pop(0)
+                if path: #Not last
+                    if p not in it:
+                        it[p] = {}
+                    elif not isinstance(it[p], dict):
+                        self.display.warning("field mapping replacing a value with dict")
+                        it[p] = {}
+                    it = it[p]
+                else:
+                    it[p] = fields[k]
+        
+        return varz
+    
     def get_pgroup_name(self, el):
         p = el.getparent()
         if p is not None and p.tag != "Root":
@@ -169,15 +221,15 @@ class InventoryModule(BaseInventoryPlugin):
             return yaml.safe_load(notes) or {}
         return None
         
-    def map_entry_strings(self, el):
-        elmap = {}
+    def get_entry_fields(self, el):
+        fields = {}
         for s in el.findall('String'):
             k = s.find('Key')
             v = s.find('Value')
             if k is not None and v is not None:
-                elmap[k.text.lower()] = v.text
+                fields[k.text.lower()] = v.text
 
-        return elmap
+        return fields
 
     def is_ancestor(self, el, an):
         if el is None or an is None:

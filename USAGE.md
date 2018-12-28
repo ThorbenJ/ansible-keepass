@@ -53,9 +53,26 @@ If the "Notes" field in both Groups and Entries starts with --- (YAML's three da
 Entry string fields
 -------------------
 
-Found under the advanced tab.
+Found under the advanced tab in keepass2.
 
-You will find these set in the subkey "keepass_data" (by default), I am still working on how best to handle these.
+These fields will be added as variables to the host (or group variable). The field name supports a dot-notation '.'; so if you had two fields like:
+
+  * foo.bar = 1
+  * foo.moo = 2
+
+You will get:
+
+    foo: {
+        bar: 1
+        moo: 2
+    }
+
+The is a field name mapping that is applied. The default mapping will hide the 'title' field and map 'url', 'username' and 'password' under "login". The mappings can be controled by configuration options (to be documented).
+
+Group "vars" entries
+--------------------
+
+Any Keepass entry starting with a ':' (colon) will be added as a variable under that group. All text following the ':' will be the variable's name. All Notes or String fields will be added under that variable (thus it will always be a dictionary)
 
 Group inheritance
 -----------------
@@ -64,13 +81,13 @@ The Keepass db only has a single inheritance hierarchy, but ansible supports hos
 
 To support this, this plugin treat all groups in the keepass db with identical names as being the same group in the inventory, so:
 
- - Aa
-  - Bb
-   - Cc
-  - Dd
- -Ee
-  - Bb
-   - Ff
+  - Aa
+    - Bb
+      - Cc
+    - Dd
+  -Ee
+    - Bb
+      - Ff
 
 In the ansible inventory there will be a single "Bb" group with both "Aa" and "Ee" as a parent and both "Cc" and "Ff" as a children.
 
@@ -88,8 +105,7 @@ Only Keepass entries starting with '@' in the title will be read in as an invent
 Will result in an inventory host called "myhost.example.com":
 
     hostname: myhost.example.com
-    keepass_data: {
-        title: "@myhost.example.com",
+    login: {
         password: "abc123"
         url: null,
         username: null,
