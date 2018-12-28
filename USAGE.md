@@ -85,7 +85,7 @@ To support this, this plugin treat all groups in the keepass db with identical n
     - Bb
       - Cc
     - Dd
-  -Ee
+  - Ee
     - Bb
       - Ff
 
