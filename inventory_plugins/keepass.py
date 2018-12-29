@@ -1,3 +1,9 @@
+# coding=utf8
+#
+# (c) 2018 Thorben Jändling <ThorbenJ@users.noreply.github.com>
+#
+# Licenced under the LGPL 3 (see LICENCE)
+#
 
 from __future__ import absolute_import
 
@@ -16,7 +22,6 @@ description:
     - "Finally, Groups with the same name are merged, including both parent and child groups."
     - "Possible Keepass passwords are taken from Enviroment Variables and the Ansible vault password (if given)."
 notes:
-    - "Currently supported password environment variables: KEEPASS_PW, RD_OPTION_KEEPASS_PW"
     - "Setting 'try_envvar_list' in the Database Description is obviously too late to be of use"
 options:
     ignore_groups:
@@ -48,26 +53,26 @@ EXAMPLES='''
 
 The following keepass file hierarchy:-
 (G) Top
-    |-(E) :Top_var
-    |-(E) @top_host1.example.com
-    |-(E) FooBar.example.com
-    |
-    |-(G) Aa
-    |  |-(E) @aa_host1.exmaple.com
-    |  |
-    |  |-(G) Bb
-    |  |  |-(E) @bb_host1.example.com
-    |  |  |
-    |  |  `-(G) Cc
-    |  |     `-(E) @cc_host1.example.com
-    |  |
-    |  `-(G) Dd
-    |     |
-    |     `-(G) Bb
-    |        |-(E) :bb_var
-    |        |
-    |        `-(G) Ee
-    `-(G) Ff
+ |-(E) :Top_var
+ |-(E) @top_host1.example.com
+ |-(E) FooBar.example.com
+ |
+ |-(G) Aa
+ |  |-(E) @aa_host1.exmaple.com
+ |  |
+ |  |-(G) Bb
+ |  |  |-(E) @bb_host1.example.com
+ |  |  |
+ |  |  `-(G) Cc
+ |  |     `-(E) @cc_host1.example.com
+ |  |
+ |  `-(G) Dd
+ |     |
+ |     `-(G) Bb
+ |        |-(E) :bb_var
+ |        |
+ |        `-(G) Ee
+ `-(G) Ff
 
 Will get the following output from ansible-inventory --list :-
 {
@@ -126,6 +131,11 @@ Will get the following output from ansible-inventory --list :-
                     "url": null, 
                     "username": "top_user"
                 }, 
+                "bb_var": {
+                    "password": "abc123", 
+                    "url": null, 
+                    "username": "bb_user"
+                }, 
                 "login": {
                     "password": "abc123", 
                     "url": null, 
@@ -137,6 +147,11 @@ Will get the following output from ansible-inventory --list :-
                     "password": "abc123", 
                     "url": null, 
                     "username": "top_user"
+                }, 
+                "bb_var": {
+                    "password": "abc123", 
+                    "url": null, 
+                    "username": "bb_user"
                 }, 
                 "login": {
                     "password": "abc123", 
@@ -173,10 +188,16 @@ This example does not include variables set via "Notes" nor "String fields"
 
 import os
 import yaml
-from pykeepass import PyKeePass
 
 from ansible.plugins.inventory import BaseInventoryPlugin
 from ansible.errors import AnsibleError, AnsibleParserError
+
+try:
+    from pykeepass import PyKeePass
+    #Version check?
+except:
+    raise AnsibleError("This plugin requires pykeepass, please install pykeepass or disable this plugin")
+
 
 class InventoryModule(BaseInventoryPlugin):
 
@@ -203,7 +224,8 @@ class InventoryModule(BaseInventoryPlugin):
         # call base method to ensure properties are available for use with other helper methods
         super(InventoryModule, self).parse(inventory, loader, path, cache)
 
-        self.display.vv("TEST: "+str(self.get_option('ignore_groups')))
+        # Populate option defaults
+        self.set_options()
         
         kp_db = None
         for pw in self.get_kp_passwords():
@@ -218,12 +240,13 @@ class InventoryModule(BaseInventoryPlugin):
                 continue
 
         if kp_db:
+            # Load config options from kdb file
             d = kp_db.tree.find('Meta/DatabaseDescription')
             if d is not None and d.text:
                 options = self.read_notes(d.text)
                 self._consume_options(options)
-                #for k in options:
-                    #self.set_option(k, options[k])
+                if options:
+                    self.display.warning("Database Description contains unsupported options")
                 
             self._parse_kp_db(kp_db)
         else:
