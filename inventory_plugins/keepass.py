@@ -1,6 +1,176 @@
 
 from __future__ import absolute_import
 
+DOCUMENTATION = '''
+inventory: keepass
+version_added: "N/A"
+short_description: "Read a Keepass kdbx file as an inventory source."
+description:
+    - "Will read a Keepass2 kdb/kdbx file as an inventory source. "
+    - "The following 'YAML fields' must start with '---' or will be ignored."
+    - "First: The Database Description is read as a YAML field with configuration options."
+    - "Second: The Group and/or Entry 'Notes' fields are read as a YAML field with vars for that Group/Host. "
+    - "Keepass Entries will be ignored, except:"
+    - "A) Entries with titles starting with '@' are read as a Host/"
+    - "B) Entries with titles starting with ':' are read as a (dict) Variable for its containing Group. "
+    - "Finally, Groups with the same name are merged, including both parent and child groups."
+    - "Possible Keepass passwords are taken from Enviroment Variables and the Ansible vault password (if given)."
+notes:
+    - "Currently supported password environment variables: KEEPASS_PW, RD_OPTION_KEEPASS_PW"
+    - "Setting 'try_envvar_list' in the Database Description is obviously too late to be of use"
+options:
+    ignore_groups:
+        description: List of groups to ignore
+        type: list
+        default: ["Recycle Bin"]
+    host_field_map:
+        description: Mapping for Host String Fields
+        type: dict
+        default: 
+            password: login.password
+            username: login.username
+            url:      login.url
+            title: null
+    vars_field_map:
+        description: Mapping for Vars String Fields
+        type: dict
+        default:
+            title: null
+    try_envvar_list:
+        description: List of environment variables to try for passwords
+        type: list
+        default: ["KEEPASS_PW", "RD_OPTION_KEEPASS_PW"]
+'''
+
+EXAMPLES='''
+(G) = Group
+(E) = Entry
+
+The following keepass file hierarchy:-
+(G) Top
+    |-(E) :Top_var
+    |-(E) @top_host1.example.com
+    |-(E) FooBar.example.com
+    |
+    |-(G) Aa
+    |  |-(E) @aa_host1.exmaple.com
+    |  |
+    |  |-(G) Bb
+    |  |  |-(E) @bb_host1.example.com
+    |  |  |
+    |  |  `-(G) Cc
+    |  |     `-(E) @cc_host1.example.com
+    |  |
+    |  `-(G) Dd
+    |     |
+    |     `-(G) Bb
+    |        |-(E) :bb_var
+    |        |
+    |        `-(G) Ee
+    `-(G) Ff
+
+Will get the following output from ansible-inventory --list :-
+{
+    "Aa": {
+        "hosts": [
+                "aa_host1.example.com"
+                #No FooBar it's ignored
+        ],
+        "children": [
+            "Bb",
+            "Dd"
+        ]
+    }, 
+    "Bb": {
+        "hosts": [
+            "bb_host1.example.com"
+        ],
+        "children": [
+            "Cc",
+            "Ee"
+        ]
+    }, 
+    "Cc": {
+        "hosts": [
+            "cc_host1.exmaple.com"
+        ]
+    }, 
+    "Dd": {
+        "children": [
+            "Bb"
+        ]
+    },
+    "Top": {
+        "children": [
+            "Aa", 
+            "Ff"
+        ]
+    }, 
+    "_meta": {
+        "hostvars": {
+            "aa_host1.example.com": {
+                "Top_var": {
+                    "password": "abc123", 
+                    "url": null, 
+                    "username": "user"
+                }, 
+                "login": {
+                    "password": "abc123", 
+                    "url": null, 
+                    "username": "aa_host1_user"
+                }
+            }, 
+            "bb_host1.example.com": {
+                "Top_var": {
+                    "password": "abc123", 
+                    "url": null, 
+                    "username": "top_user"
+                }, 
+                "login": {
+                    "password": "abc123", 
+                    "url": null, 
+                    "username": "bb_host1_user"
+                }
+            }, 
+            "cc_host1.exmaple.com": {
+                "Top_var": {
+                    "password": "abc123", 
+                    "url": null, 
+                    "username": "top_user"
+                }, 
+                "login": {
+                    "password": "abc123", 
+                    "url": null, 
+                    "username": "cc_host1_user"
+                }
+            }, 
+            "top_host1.example.com": {
+                "Top_var": {
+                    "password": "abc123", 
+                    "url": null, 
+                    "username": "top_user"
+                }, 
+                "login": {
+                    "password": "abc123", 
+                    "url": null, 
+                    "username": "top_host1_user"
+                }
+            }
+        }
+    }, 
+    "all": {
+        "children": [
+            "Top", 
+            "ungrouped"
+        ]
+    }, 
+    "ungrouped": {}
+}
+
+This example does not include variables set via "Notes" nor "String fields"
+
+'''
+
 import os
 import yaml
 from pykeepass import PyKeePass
@@ -12,22 +182,11 @@ class InventoryModule(BaseInventoryPlugin):
 
     NAME = 'keepass'  # used internally by Ansible
 
-    _PW_ENV_LIST = ["RD_OPTION_KEEPASS_PW", "KEEPASS_PW"]
     _SKIP_TAGS = ['Meta', 'Times', 'DeletedObjects', 'History']
 
-    opts = {
-        'ignore_groups': ["Recycle Bin"],
-        'host_field_map': {
-            'password': 'login.password',
-            'username': 'login.username',
-            'url':      'login.url',
-            'title': None
-        },
-        'vars_field_map': {
-            'title': None
-        }
-    }
-    
+    def __init__(self):
+        super(InventoryModule, self).__init__()
+
     def verify_file(self, path):
         ''' return true/false if this is possibly a valid file for this plugin to consume '''
      
@@ -44,6 +203,8 @@ class InventoryModule(BaseInventoryPlugin):
         # call base method to ensure properties are available for use with other helper methods
         super(InventoryModule, self).parse(inventory, loader, path, cache)
 
+        self.display.vv("TEST: "+str(self.get_option('ignore_groups')))
+        
         kp_db = None
         for pw in self.get_kp_passwords():
             try:
@@ -60,10 +221,9 @@ class InventoryModule(BaseInventoryPlugin):
             d = kp_db.tree.find('Meta/DatabaseDescription')
             if d is not None and d.text:
                 options = self.read_notes(d.text)
-                for k in options: 
-                    self.opts[k] = options[k]
-                    # Two options "systems" is redundant, need to switch
-                    self.set_option(k, options[k])
+                self._consume_options(options)
+                #for k in options:
+                    #self.set_option(k, options[k])
                 
             self._parse_kp_db(kp_db)
         else:
@@ -104,10 +264,11 @@ class InventoryModule(BaseInventoryPlugin):
     def got_group(self, el):
         inv = self.inventory
         name = el.find('Name')
+        ig = self.get_option('ignore_groups')
         
         if name is None:
             raise AnsibleParserError("Impossible group without a name")
-        if name.text in self.opts['ignore_groups']:
+        if name.text in ig:
             return False
         
         self.display.vvvv("Group: " + name.text)
@@ -154,7 +315,7 @@ class InventoryModule(BaseInventoryPlugin):
             
         notes = fields.pop('notes')
         
-        varz = self.map_fields(fields, self.opts['host_field_map'])
+        varz = self.map_fields(fields, self.get_option('host_field_map'))
         for k in varz: inv.set_variable(h, k, varz[k])
         
         if notes is not None: notes = self.read_notes(notes)
@@ -168,7 +329,7 @@ class InventoryModule(BaseInventoryPlugin):
             notes = fields.pop('notes')
             if notes is not None: notes = self.read_notes(notes)
              
-            varz = self.map_fields(fields, self.opts['vars_field_map'])
+            varz = self.map_fields(fields, self.get_option('vars_field_map'))
             for k in varz:
                 if k in notes:
                     self.display.warning("dropping field with same key as notes")
@@ -244,7 +405,7 @@ class InventoryModule(BaseInventoryPlugin):
     def get_kp_passwords(self):
         kp_pw = []
         
-        for k in self._PW_ENV_LIST:
+        for k in self.get_option('try_envvar_list'):
             if k in os.environ and os.environ[k]:
                 kp_pw.append(os.environ[k])
 
