@@ -22,7 +22,7 @@ The keepass plugin will try to use the "default" (vault id) password, if given; 
 
 It will try all available passwords in turn, starting with env-vars, until one succeeds; otherwise the plugin will fail.
 
-If you're not scared of Python you will find the list of env-vars to try near the top of the source file, you could add some more if needed.
+The list of env-vars to try is a configurable option; that could be set via the "auto" inventory plugin's yaml file.
 
 examples with vault password
 

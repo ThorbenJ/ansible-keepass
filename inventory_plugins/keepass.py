@@ -244,7 +244,8 @@ class InventoryModule(BaseInventoryPlugin):
             d = kp_db.tree.find('Meta/DatabaseDescription')
             if d is not None and d.text:
                 options = self.read_notes(d.text)
-                self._consume_options(options)
+                if options: 
+                    self._consume_options(options)
                 if options:
                     self.display.warning("Database Description contains unsupported options")
                 
@@ -305,8 +306,7 @@ class InventoryModule(BaseInventoryPlugin):
             inv.add_child(pgn, name.text)
         
         notes = el.find('Notes')    
-        if notes is not None: 
-            notes = self.read_notes(notes.text)
+        notes = self.read_notes(notes.text)
         if notes is not None: 
             for k in notes: inv.set_variable(name.text, k , notes[k])
         
@@ -341,27 +341,31 @@ class InventoryModule(BaseInventoryPlugin):
         varz = self.map_fields(fields, self.get_option('host_field_map'))
         for k in varz: inv.set_variable(h, k, varz[k])
         
-        if notes is not None: notes = self.read_notes(notes)
-        for k in notes: inv.set_variable(h, k , notes[k])
+        notes = self.read_notes(notes)
+        if notes is not None:
+            for k in notes: inv.set_variable(h, k , notes[k])
 
 
     def got_vars(self, el, fields):
         e = fields['title'].split(':', 1)[-1]
         
-        if e and len(e) > 1:
-            notes = fields.pop('notes')
-            if notes is not None: notes = self.read_notes(notes)
+        if not e or len(e) < 1:
+            self.display.warning("Vars entry has no name")
+            return
+        
+        notes = fields.pop('notes')
+        notes = self.read_notes(notes) or {}
              
-            varz = self.map_fields(fields, self.get_option('vars_field_map'))
+        varz = self.map_fields(fields, self.get_option('vars_field_map'))
+        if varz:
             for k in varz:
                 if k in notes:
                     self.display.warning("dropping field with same key as notes")
                     continue
                 notes[k] = varz[k]
                 
-            self.inventory.set_variable(self.get_pgroup_name(el), e , notes)
-        else:
-            self.display.warning("Vars entry has no name")
+        self.inventory.set_variable(self.get_pgroup_name(el), e , notes)
+           
     
 
     def map_fields(self, fields, mapping):
