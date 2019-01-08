@@ -95,6 +95,15 @@ This is all fine for Groups, but not so straight forward for hosts and variable:
 
 Please avoid having identically named hosts or variables in multiple same named groups. It is recommended to only populate one such group with hosts and variables, and leave the rest empty and just for relationship mapping.
 
+Symbolic group entries
+----------------------
+
+If you have empty groups that are just there to add a parent/child relationship, you could optionally use a symbolic group entry. Any entry starting with '%' (percent) will be added as a child group, the name of which being all text after the '%'.
+
+String fields and Notes variables will be added to the child group, but only if that group does not already have that variable.
+
+This feature is a convenience helper, and not strictly needed.
+
 Host entries
 ------------
 
