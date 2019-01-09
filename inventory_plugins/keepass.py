@@ -353,7 +353,7 @@ class InventoryModule(BaseInventoryPlugin):
         inv.add_host(h, group=self.get_pgroup_name(el))
 
         notes = self.read_notes(fields['notes'])
-        if notes: fields.pop('notes')
+        if notes is not None: fields.pop('notes')
         
         varz = self.map_fields(fields, self.get_option('host_field_map'))
         if varz:
@@ -372,7 +372,7 @@ class InventoryModule(BaseInventoryPlugin):
             return
         
         notes = self.read_notes(fields['notes']) or {}
-        if notes: fields.pop('notes')
+        if notes is not None: fields.pop('notes')
         
         varz = self.map_fields(fields, self.get_option('vars_field_map')) or {}
         
@@ -391,13 +391,12 @@ class InventoryModule(BaseInventoryPlugin):
         
         if g not in inv.groups: inv.add_group(g)
         inv.add_child(self.get_pgroup_name(el), g)
-            
-        notes = self.read_notes(fields['notes']) or {}
         
         group = inv.groups[g]
         
+        notes = self.read_notes(fields['notes']) or {}
+        if notes is not None: fields.pop('notes')        
         if notes:
-            fields.pop('notes')
             for k in notes: 
                 if k not in group.vars:
                     inv.set_variable(g, k , notes[k])
