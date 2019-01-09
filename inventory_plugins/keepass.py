@@ -371,7 +371,7 @@ class InventoryModule(BaseInventoryPlugin):
             self.display.warning("Vars entry has no name")
             return
         
-        notes = self.read_notes(fields['notes']) or {}
+        notes = self.read_notes(fields['notes'])
         if notes is not None: fields.pop('notes')
         
         varz = self.map_fields(fields, self.get_option('vars_field_map')) or {}
@@ -394,7 +394,7 @@ class InventoryModule(BaseInventoryPlugin):
         
         group = inv.groups[g]
         
-        notes = self.read_notes(fields['notes']) or {}
+        notes = self.read_notes(fields['notes'])
         if notes is not None: fields.pop('notes')        
         if notes:
             for k in notes: 
