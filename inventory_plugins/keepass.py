@@ -361,6 +361,9 @@ class InventoryModule(BaseInventoryPlugin):
         
         # Notes has priority over string fields
         if notes:
+            if not isinstance(notes, dict):
+                raise AnsibleError("None dict YAML notes not yet supported (error in host entry: "+h+")")
+            
             for k in notes: inv.set_variable(h, k , notes[k])
 
 
@@ -377,6 +380,9 @@ class InventoryModule(BaseInventoryPlugin):
         varz = self.map_fields(fields, self.get_option('vars_field_map')) or {}
         
         if notes:
+            if not isinstance(notes, dict):
+                raise AnsibleError("None dict YAML notes not yet supported (error in vars entry: "+e+")")
+            
             for k in notes: 
                 if k in varz:
                     self.display.warning("Overwriting string varible ("+k+") with notes value")
@@ -397,6 +403,9 @@ class InventoryModule(BaseInventoryPlugin):
         notes = self.read_notes(fields['notes'])
         if notes is not None: fields.pop('notes')        
         if notes:
+            if not isinstance(notes, dict):
+                raise AnsibleError("None dict YAML notes not yet supported (error in group: "+g+")")
+            
             for k in notes: 
                 if k not in group.vars:
                     inv.set_variable(g, k , notes[k])
