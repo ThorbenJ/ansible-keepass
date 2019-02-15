@@ -17,7 +17,7 @@ description:
     - "First: The Database Description is read as a YAML field with configuration options."
     - "Second: The Group and/or Entry 'Notes' fields are read as a YAML field with vars for that Group/Host. "
     - "Keepass Entries will be ignored, except:"
-    - "A) Entries with titles starting with '@' are read as a Host/"
+    - "A) Entries with titles starting with '@' are read as a Host"
     - "B) Entries with titles starting with ':' are read as a (dict) Variable for its containing Group. "
     - "Finally, Groups with the same name are merged, including both parent and child groups."
     - "Possible Keepass passwords are taken from Enviroment Variables and the Ansible vault password (if given)."
@@ -117,7 +117,7 @@ Will get the following output from ansible-inventory --list :-
                 "Top_var": {
                     "password": "abc123", 
                     "url": null, 
-                    "username": "user"
+                    "username": "top_user"
                 }, 
                 "login": {
                     "password": "abc123", 
