@@ -19,6 +19,8 @@ description:
     - "Keepass Entries will be ignored, except:"
     - "A) Entries with titles starting with '@' are read as a Host"
     - "B) Entries with titles starting with ':' are read as a (dict) Variable for its containing Group. "
+    - "C) Entries with titles starting with '%' represent and 'empty' group, and is used to add a parent/child association"
+    - "D) Entries with titles starting with '!' will only read a YAML notes section, allowing it to be something other than a dict (list, string, etc)"
     - "Finally, Groups with the same name are merged, including both parent and child groups."
     - "Possible Keepass passwords are taken from Enviroment Variables and the Ansible vault password (if given)."
 notes:
@@ -340,6 +342,10 @@ class InventoryModule(BaseInventoryPlugin):
         # --- Process variables entry ---
         if fields['title'].startswith(':'):
             self.got_vars(el, fields)
+
+        # --- Process variables entry ---
+        if fields['title'].startswith('!'):
+            self.got_ymlvars(el, fields)
             
         # --- Process symbolic group entry
         if fields['title'].startswith('%'):
@@ -389,7 +395,21 @@ class InventoryModule(BaseInventoryPlugin):
                 varz[k] = notes[k]
                 
         self.inventory.set_variable(self.get_pgroup_name(el), e , varz)
+    
+    def got_ymlvars(self, el, fields):
+        e = fields['title'].split('!', 1)[-1]
         
+        if not e or len(e) < 1:
+            self.display.warning("Vars entry has no name")
+            return
+        
+        notes = self.read_notes(fields['notes'])
+        if notes is None:
+            self.display.warning("YAML notes only field has no content")
+            return
+                
+        self.inventory.set_variable(self.get_pgroup_name(el), e , notes)
+
     # Symbolc groups do not overwritte existing variables
     def got_symgroup(self, el, fields):
         inv = self.inventory
@@ -493,9 +513,11 @@ class InventoryModule(BaseInventoryPlugin):
             # Currently we only grab the default key
             if s[0] != u'default': continue
         
-            kp_pw.append(s[1].bytes)
+            kp_pw.append(s[1].bytes.decode(encoding='UTF-8'))
 
         if not kp_pw:
             raise AnsibleParserError("Could not get any keepass password")
+        
+        self.display.vvv("Inv. Keepass found " + str(len(kp_pw)) + " passwords to try")
         
         return kp_pw
