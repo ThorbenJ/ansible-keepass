@@ -31,16 +31,26 @@ options:
     host_field_map:
         description: Mapping for Host String Fields
         type: dict
-        default: 
-            password: login.password
-            username: login.username
-            url:      login.url
+        default:
             title: null
+            username: login.username
+            password: login.password
+            url:      login.url
+            notes:    login.notes
     vars_field_map:
         description: Mapping for Vars String Fields
         type: dict
         default:
             title: null
+    symgroup_field_map:
+        description: Mapping for symbolic group (link) String Fields
+        type: dict
+        default: 
+            title:    null
+            username: null
+            password: null
+            url:      null
+            notes:    null
     try_envvar_list:
         description: List of environment variables to try for passwords
         type: list
@@ -244,7 +254,8 @@ class InventoryModule(BaseInventoryPlugin):
             d = kp_db.tree.find('Meta/DatabaseDescription')
             if d is not None and d.text:
                 options = self.read_notes(d.text)
-                self._consume_options(options)
+                if options: 
+                    self._consume_options(options)
                 if options:
                     self.display.warning("Database Description contains unsupported options")
                 
@@ -291,24 +302,25 @@ class InventoryModule(BaseInventoryPlugin):
         
         if name is None:
             raise AnsibleParserError("Impossible group without a name")
-        if name.text in ig:
+        else:
+            name = name.text
+        if not name or name in ig:
             return False
         
-        self.display.vvvv("Group: " + name.text)
+        self.display.vvvv("= Group: " + name)
         
-        if name.text not in inv.groups:
-            inv.add_group(name.text)
+        if name not in inv.groups:
+            inv.add_group(name)
             
         pgn = self.get_pgroup_name(el)
         # It should not be possible to have a child added before the parent, but just in case..
-        if pgn is not None and pgn in inv.groups:
-            inv.add_child(pgn, name.text)
+        if pgn is not None:
+            inv.add_child(pgn, name)
         
         notes = el.find('Notes')    
+        notes = self.read_notes(notes.text)
         if notes is not None: 
-            notes = self.read_notes(notes.text)
-        if notes is not None: 
-            for k in notes: inv.set_variable(name.text, k , notes[k])
+            for k in notes: inv.set_variable(name, k , notes[k])
         
         return True
 
@@ -319,7 +331,7 @@ class InventoryModule(BaseInventoryPlugin):
             self.display.warning("Entry has no Title set!")
             return
         
-        self.display.vvvv("Entry: " + fields['title'] +"\n")
+        self.display.vvvv("- Entry: " + fields['title'])
         
         # --- Process host entry ---
         if fields['title'].startswith('@'):
@@ -329,39 +341,82 @@ class InventoryModule(BaseInventoryPlugin):
         if fields['title'].startswith(':'):
             self.got_vars(el, fields)
             
+        # --- Process symbolic group entry
+        if fields['title'].startswith('%'):
+            self.got_symgroup(el, fields)
+            
                 
     def got_host(self, el, fields):
         inv = self.inventory
         h = fields['title'].split('@', 1)[-1]
         
         inv.add_host(h, group=self.get_pgroup_name(el))
-            
-        notes = fields.pop('notes')
+
+        notes = self.read_notes(fields['notes'])
+        if notes is not None: fields.pop('notes')
         
         varz = self.map_fields(fields, self.get_option('host_field_map'))
-        for k in varz: inv.set_variable(h, k, varz[k])
+        if varz:
+            for k in varz: inv.set_variable(h, k, varz[k])
         
-        if notes is not None: notes = self.read_notes(notes)
-        for k in notes: inv.set_variable(h, k , notes[k])
+        # Notes has priority over string fields
+        if notes:
+            if not isinstance(notes, dict):
+                raise AnsibleError("None dict YAML notes not yet supported (error in host entry: "+h+")")
+            
+            for k in notes: inv.set_variable(h, k , notes[k])
 
 
     def got_vars(self, el, fields):
         e = fields['title'].split(':', 1)[-1]
         
-        if e and len(e) > 1:
-            notes = fields.pop('notes')
-            if notes is not None: notes = self.read_notes(notes)
-             
-            varz = self.map_fields(fields, self.get_option('vars_field_map'))
-            for k in varz:
-                if k in notes:
-                    self.display.warning("dropping field with same key as notes")
-                    continue
-                notes[k] = varz[k]
-                
-            self.inventory.set_variable(self.get_pgroup_name(el), e , notes)
-        else:
+        if not e or len(e) < 1:
             self.display.warning("Vars entry has no name")
+            return
+        
+        notes = self.read_notes(fields['notes'])
+        if notes is not None: fields.pop('notes')
+        
+        varz = self.map_fields(fields, self.get_option('vars_field_map')) or {}
+        
+        if notes:
+            if not isinstance(notes, dict):
+                raise AnsibleError("None dict YAML notes not yet supported (error in vars entry: "+e+")")
+            
+            for k in notes: 
+                if k in varz:
+                    self.display.warning("Overwriting string varible ("+k+") with notes value")
+                varz[k] = notes[k]
+                
+        self.inventory.set_variable(self.get_pgroup_name(el), e , varz)
+        
+    # Symbolc groups do not overwritte existing variables
+    def got_symgroup(self, el, fields):
+        inv = self.inventory
+        g = fields['title'].split('%', 1)[-1]
+        
+        if g not in inv.groups: inv.add_group(g)
+        inv.add_child(self.get_pgroup_name(el), g)
+        
+        group = inv.groups[g]
+        
+        notes = self.read_notes(fields['notes'])
+        if notes is not None: fields.pop('notes')        
+        if notes:
+            if not isinstance(notes, dict):
+                raise AnsibleError("None dict YAML notes not yet supported (error in group: "+g+")")
+            
+            for k in notes: 
+                if k not in group.vars:
+                    inv.set_variable(g, k , notes[k])
+            
+        varz = self.map_fields(fields, self.get_option('symgroup_field_map'))
+        if varz:
+            for k in varz: 
+                if k not in group.vars:
+                    inv.set_variable(g, k, varz[k])
+        
+
     
 
     def map_fields(self, fields, mapping):
@@ -392,7 +447,9 @@ class InventoryModule(BaseInventoryPlugin):
     def get_pgroup_name(self, el):
         p = el.getparent()
         if p is not None and p.tag != "Root":
-            return p.find('Name').text
+            pgn = p.find('Name').text
+            self.display.vvvv("> "+pgn+" is parent group of "+el.tag)
+            return pgn
         return None
 
 

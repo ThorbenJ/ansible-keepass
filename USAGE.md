@@ -22,7 +22,7 @@ The keepass plugin will try to use the "default" (vault id) password, if given; 
 
 It will try all available passwords in turn, starting with env-vars, until one succeeds; otherwise the plugin will fail.
 
-If you're not scared of Python you will find the list of env-vars to try near the top of the source file, you could add some more if needed.
+The list of env-vars to try is a configurable option; that could be set via the "auto" inventory plugin's yaml file.
 
 examples with vault password
 
@@ -94,6 +94,15 @@ In the ansible inventory there will be a single "Bb" group with both "Aa" and "E
 This is all fine for Groups, but not so straight forward for hosts and variable: If two identically named groups have identically named hosts or variables in them, it is undefined which group will "win". 
 
 Please avoid having identically named hosts or variables in multiple same named groups. It is recommended to only populate one such group with hosts and variables, and leave the rest empty and just for relationship mapping.
+
+Symbolic group entries
+----------------------
+
+If you have empty groups that are just there to add a parent/child relationship, you could optionally use a symbolic group entry. Any entry starting with '%' (percent) will be added as a child group, the name of which being all text after the '%'.
+
+String fields and Notes variables will be added to the child group, but only if that group does not already have that variable.
+
+This feature is a convenience helper, and not strictly needed.
 
 Host entries
 ------------
